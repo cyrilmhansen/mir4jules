@@ -59,6 +59,8 @@ else
   EXE=
   CC=gcc
   CFLAGS += -fPIC -g -std=gnu11 -Wno-abi -fsigned-char
+  # Add include path for basic2mir sources
+  CPPFLAGS += -I$(SRC_DIR)/basic2mir/src
   ifneq ($(ADDITIONAL_INCLUDE_PATH),)
     CFLAGS += -DADDITIONAL_INCLUDE_PATH=\"$(ADDITIONAL_INCLUDE_PATH)\"
   endif
@@ -136,12 +138,23 @@ L2M_EXE += $(BUILD_DIR)/l2m$(EXE)
 L2M_TEST += l2m-test$(EXE)
 endif
 
-EXECUTABLES=$(BUILD_DIR)/c2m$(EXE) $(BUILD_DIR)/m2b$(EXE) $(BUILD_DIR)/b2m$(EXE) $(BUILD_DIR)/b2ctab$(EXE) $(L2M_EXE) $(BUILD_DIR)/mir-bin-run$(EXE)
+# Variables for basic2mir
+BASIC2MIR_SRC_DIR = $(SRC_DIR)/basic2mir/src
+BASIC2MIR_SRCS = \
+    $(BASIC2MIR_SRC_DIR)/basic_lexer.c \
+    $(BASIC2MIR_SRC_DIR)/basic_parser.c \
+    $(BASIC2MIR_SRC_DIR)/basic_ast.c \
+    $(BASIC2MIR_SRC_DIR)/basic_semantic.c \
+    $(BASIC2MIR_SRC_DIR)/basic_mir_emitter.c \
+    $(BASIC2MIR_SRC_DIR)/basic2mir_driver.c
+BASIC2MIR_OBJS = $(BASIC2MIR_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.$(OBJSUFF))
+
+EXECUTABLES=$(BUILD_DIR)/c2m$(EXE) $(BUILD_DIR)/m2b$(EXE) $(BUILD_DIR)/b2m$(EXE) $(BUILD_DIR)/b2ctab$(EXE) $(L2M_EXE) $(BUILD_DIR)/mir-bin-run$(EXE) $(BUILD_DIR)/basic2mir$(EXE)
 
 Q=@
 
 # Entries should be used for building and installation
-.PHONY: all debug install uninstall clean test bench
+.PHONY: all debug install uninstall clean test bench check_basic
 
 all: $(BUILD_DIR)/libmir.$(LIBSUFF) $(BUILD_DIR)/$(SOLIB) $(EXECUTABLES)
 
@@ -189,11 +202,12 @@ endif
 	-rmdir $(PREFIX)
 
 clean: clean-mir clean-c2m clean-utils clean-l2m clean-adt-tests clean-mir-tests clean-mir2c-test clean-bench
-	$(RM) $(EXECUTABLES) $(BUILD_DIR)/libmir.$(LIBSUFF) $(BUILD_DIR)/$(SOLIB)
+	$(RM) $(EXECUTABLES) $(BUILD_DIR)/libmir.$(LIBSUFF) $(BUILD_DIR)/$(SOLIB) \
+	$(BASIC2MIR_OBJS) $(TEST_LEXER_OBJ) test_lexer_bin
 
-test: readme-example-test mir-bin-run-test c2mir-test
+test: readme-example-test mir-bin-run-test c2mir-test check_basic
 
-test-all: adt-test simplify-test io-test scan-test mir2c-test $(L2M-TEST) test
+test-all: adt-test simplify-test io-test scan-test mir2c-test $(L2M-TEST) test check_basic
 
 bench: interp-bench gen-bench gen-bench2 io-bench mir2c-bench c2mir-sieve-bench gen-speed c2mir-bench
 	@echo ==============================Bench is done
@@ -207,9 +221,18 @@ $(BUILD_DIR)/%.$(OBJSUFF): $(SRC_DIR)/%.c | $(BUILD_DIR)
 
 .PHONY: clean-mir
 clean-mir:
-	$(RM) $(MIR_BUILD) $(MIR_BUILD:.$(OBJSUFF)=.d)
+	$(RM) $(MIR_BUILD) $(MIR_BUILD:.$(OBJSUFF)=.d) $(BASIC2MIR_OBJS) $(BASIC2MIR_OBJS:.$(OBJSUFF)=.d)
 
 -include $(MIR_BUILD:.$(OBJSUFF)=.d)
+-include $(BASIC2MIR_OBJS:.$(OBJSUFF)=.d) # Include dependencies for basic2mir objects
+
+# Rule for basic2mir object files (assumes they are in basic2mir/src and output to build_dir/basic2mir/src)
+$(BUILD_DIR)/basic2mir/src/%.$(OBJSUFF): $(SRC_DIR)/basic2mir/src/%.c | $(BUILD_DIR)/basic2mir/src
+	$(COMPILE) -c $< $(OBJO)$@
+
+$(BUILD_DIR)/basic2mir/src:
+	mkdir -p $@
+
 
 # ------------------ LIBMIR -----------------------
 $(BUILD_DIR)/libmir.$(LIBSUFF): $(BUILD_DIR)/mir.$(OBJSUFF) $(BUILD_DIR)/mir-gen.$(OBJSUFF) $(BUILD_DIR)/c2mir/c2mir.$(OBJSUFF)
@@ -245,6 +268,10 @@ clean-c2m:
 	$(RM) $(C2M_BUILD) $(C2M_BUILD:.$(OBJSUFF)=.d)
 
 -include $(C2M_BUILD:.$(OBJSUFF)=.d)
+
+# ------------------ BASIC2MIR --------------------
+$(BUILD_DIR)/basic2mir$(EXE): $(BASIC2MIR_OBJS) $(BUILD_DIR)/libmir.$(LIBSUFF) | $(BUILD_DIR)
+	$(LINK) $^ $(LDLIBS) $(EXEO)$@
 
 # ------------------ MIR RUN ----------------------
 
@@ -788,6 +815,66 @@ mir2c-bench: $(BUILD_DIR)/mir.$(OBJSUFF) $(SRC_DIR)/mir2c/mir2c.c
 clean-bench:
 	$(RM) $(BUILD_DIR)/io-bench$(EXE) $(BUILD_DIR)/interp-bench$(EXE) $(BUILD_DIR)/gen-bench$(EXE)
 	$(RM) $(BUILD_DIR)/gen-speed$(EXE) $(BUILD_DIR)/mir2c-bench$(EXE)
+
+# ------------------ BASIC2MIR Tests ------------------
+.PHONY: check_basic test_lexer test_parser test_semantic_analyzer clean-basic-tests
+
+BASIC2MIR_CORE_OBJS = \
+    $(BUILD_DIR)/basic2mir/src/basic_lexer.$(OBJSUFF) \
+    $(BUILD_DIR)/basic2mir/src/basic_ast.$(OBJSUFF) \
+    $(BUILD_DIR)/basic2mir/src/basic_parser.$(OBJSUFF) \
+    $(BUILD_DIR)/basic2mir/src/basic_semantic.$(OBJSUFF)
+
+TEST_LEXER_SRC = $(SRC_DIR)/basic2mir/tests/unit/test_lexer.c
+TEST_LEXER_OBJ = $(TEST_LEXER_SRC:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.$(OBJSUFF))
+TEST_LEXER_BIN = $(BUILD_DIR)/basic2mir/tests/unit/test_lexer_bin$(EXE)
+
+TEST_PARSER_SRC = $(SRC_DIR)/basic2mir/tests/unit/test_parser.c
+TEST_PARSER_OBJ = $(TEST_PARSER_SRC:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.$(OBJSUFF))
+TEST_PARSER_BIN = $(BUILD_DIR)/basic2mir/tests/unit/test_parser_bin$(EXE)
+
+TEST_SEMANTIC_SRC = $(SRC_DIR)/basic2mir/tests/unit/test_semantic_analyzer.c
+TEST_SEMANTIC_OBJ = $(TEST_SEMANTIC_SRC:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.$(OBJSUFF))
+TEST_SEMANTIC_BIN = $(BUILD_DIR)/basic2mir/tests/unit/test_semantic_analyzer_bin$(EXE)
+
+
+$(BUILD_DIR)/basic2mir/tests/unit:
+	mkdir -p $@
+
+# Rule for test object files (generic for tests in basic2mir/tests/unit)
+$(BUILD_DIR)/basic2mir/tests/unit/%.$(OBJSUFF): $(SRC_DIR)/basic2mir/tests/unit/%.c | $(BUILD_DIR)/basic2mir/tests/unit
+	$(COMPILE) -c $< $(OBJO)$@
+
+
+# Rule for linking test_lexer
+$(TEST_LEXER_BIN): $(TEST_LEXER_OBJ) $(BUILD_DIR)/basic2mir/src/basic_lexer.$(OBJSUFF) $(BUILD_DIR)/basic2mir/src/basic_ast.$(OBJSUFF)
+	$(LINK) $^ $(LDLIBS) $(EXEO)$@
+
+test_lexer: $(TEST_LEXER_BIN)
+	$(TEST_LEXER_BIN)
+
+# Rule for linking test_parser
+$(TEST_PARSER_BIN): $(TEST_PARSER_OBJ) $(filter %basic_lexer.$(OBJSUFF) %basic_ast.$(OBJSUFF) %basic_parser.$(OBJSUFF),$(BASIC2MIR_CORE_OBJS))
+	$(LINK) $^ $(LDLIBS) $(EXEO)$@
+
+test_parser: $(TEST_PARSER_BIN)
+	$(TEST_PARSER_BIN)
+
+# Rule for linking test_semantic_analyzer
+$(TEST_SEMANTIC_BIN): $(TEST_SEMANTIC_OBJ) $(BASIC2MIR_CORE_OBJS)
+	$(LINK) $^ $(LDLIBS) $(EXEO)$@
+
+test_semantic_analyzer: $(TEST_SEMANTIC_BIN)
+	$(TEST_SEMANTIC_BIN)
+
+
+check_basic: test_lexer test_parser test_semantic_analyzer
+
+clean-basic-tests:
+	$(RM) $(TEST_LEXER_OBJ) $(TEST_LEXER_OBJ:.$(OBJSUFF)=.d) $(TEST_LEXER_BIN) \
+	      $(TEST_PARSER_OBJ) $(TEST_PARSER_OBJ:.$(OBJSUFF)=.d) $(TEST_PARSER_BIN) \
+	      $(TEST_SEMANTIC_OBJ) $(TEST_SEMANTIC_OBJ:.$(OBJSUFF)=.d) $(TEST_SEMANTIC_BIN)
+
 
 # ------------------ miscellaneous ----------------------
 

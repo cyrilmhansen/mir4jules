@@ -1,0 +1,10 @@
+10 REM SIMPLE CALCULATION
+20 LET A = 10
+30 LET B = 25
+40 LET C# = A + B * 2
+50 PRINT "A ="; A
+60 PRINT "B ="; B
+70 PRINT "C# ="; C#
+80 LET D = C# / (A - 5)
+90 PRINT "D ="; D
+100 END
