@@ -44,6 +44,11 @@ typedef struct {
     // Error tracking
     int error_count;
     char last_error_message[256]; // Buffer for the last error message
+
+    // Stack for matching FOR/NEXT loops
+#define MAX_LOOP_NESTING 32
+    struct BasicAstNode_s *for_loop_stack[MAX_LOOP_NESTING];
+    int for_loop_stack_ptr;
     // TODO: Add a list of errors if multiple errors need to be stored/reported
 } SemanticAnalyzer;
 

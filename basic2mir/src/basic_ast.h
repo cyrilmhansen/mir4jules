@@ -3,6 +3,7 @@
 
 #include <stdint.h> // For int32_t, double
 #include <stddef.h> // For size_t
+#include "mir.h"    // For MIR_label_t
 
 // Forward declaration for expressions and variable references
 struct BasicAstNode_s;
@@ -10,12 +11,11 @@ struct BasicAstNode_s;
 // Node types
 typedef enum {
     // Literals
-    AST_NODE_TYPE_NUMBER_LITERAL, // For numeric literals (integer, single, double)
+    AST_NODE_TYPE_NUMBER_LITERAL,
     AST_NODE_TYPE_STRING_LITERAL,
 
     // Variables
-    AST_NODE_TYPE_VARIABLE,       // Simple variable like A, B%
-    AST_NODE_TYPE_ARRAY_VARIABLE, // Array variable like A(10), B$(5,5) (Note: Represented by AST_NODE_TYPE_VARIABLE with dimensions)
+    AST_NODE_TYPE_VARIABLE,       // Simple variable like A, B%; also used for array references A(1)
 
     // Expressions
     AST_NODE_TYPE_UNARY_EXPR,     // e.g., -A, NOT X
@@ -31,7 +31,7 @@ typedef enum {
     AST_NODE_TYPE_GOTO,
     AST_NODE_TYPE_GOSUB,
     AST_NODE_TYPE_RETURN,
-    AST_NODE_TYPE_DIM,
+    AST_NODE_TYPE_DIM,            // Array dimensioning
     AST_NODE_TYPE_REM,
     AST_NODE_TYPE_END,
     AST_NODE_TYPE_PROGRAM_LINE,   // Represents a single line of BASIC code
@@ -40,7 +40,7 @@ typedef enum {
 
 // Variable types in BASIC
 typedef enum {
-    BASIC_VAR_TYPE_DEFAULT,     // Determined by context or DEFtype statements (float by default)
+    BASIC_VAR_TYPE_DEFAULT = 0, // Determined by context or DEFtype (float/single by default in many BASICs)
     BASIC_VAR_TYPE_STRING,      // $
     BASIC_VAR_TYPE_INTEGER,     // %
     BASIC_VAR_TYPE_SINGLE,      // !
@@ -50,7 +50,7 @@ typedef enum {
 // Structure for all AST nodes
 typedef struct BasicAstNode_s {
     BasicAstNodeType type;
-    int32_t line_number; // All statements are associated with a line number
+    int32_t line_number; // Original BASIC line number for statements/program lines
 
     union {
         // Program structure
@@ -60,29 +60,25 @@ typedef struct BasicAstNode_s {
         } program;
 
         struct {
-            // int32_t number; // The BASIC line number - already in parent struct as line_number for PROGRAM_LINE
-            struct BasicAstNode_s *statement;  // The statement on this line
+            // Line number is in parent BasicAstNode_s
+            struct BasicAstNode_s *statement;  // The statement on this line (can be NULL for empty line number)
             struct BasicAstNode_s *next_line;  // Pointer to the next BasicAstNode_s of type PROGRAM_LINE
         } program_line;
 
         // Literals
         struct {
-            double value; // Store all numbers as double for simplicity, can refine later
-            BasicVariableType num_type; // To distinguish INT#, SINGLE!, DOUBLE#
+            double value;
+            BasicVariableType num_type;
         } number_literal;
 
         struct {
-            char *value;
+            char *value; // strdup'd
         } string_literal;
 
         // Variables
-        // This structure is used for variable references (e.g. in expressions)
-        // and also in DIM statements for declarations.
-        // For simple variables, dimensions will be null.
-        // For array variables, dimensions will be a linked list of expression nodes.
         struct {
-            char *name;
-            BasicVariableType var_type;
+            char *name; // strdup'd
+            BasicVariableType var_type; // Type determined by suffix or context/DIM
             struct BasicAstNode_s *dimensions; // Linked list of expression nodes for array dimensions or NULL
         } variable;
 
@@ -100,40 +96,41 @@ typedef struct BasicAstNode_s {
 
         // Statements
         struct {
-            struct BasicAstNode_s *variable; // LHS (can be simple or array element, an AST_NODE_TYPE_VARIABLE)
-            struct BasicAstNode_s *expression; // RHS
+            struct BasicAstNode_s *variable;
+            struct BasicAstNode_s *expression;
         } let_stmt;
 
         struct {
-            struct BasicAstNode_s *print_items; // Linked list of expressions to print
-            struct BasicAstNode_s *next_print_item; // Used to chain print items
-            // TODO: Add support for USING clause, print zones (,), ;, SPC, TAB
+            struct BasicAstNode_s *print_items; // Linked list of expressions to print (using generic 'next')
+            // next_print_item was removed in favor of generic next for lists
         } print_stmt;
 
         struct {
-            char *prompt; // Optional prompt string
-            struct BasicAstNode_s *variables; // Linked list of AST_NODE_TYPE_VARIABLE nodes
-            struct BasicAstNode_s *next_variable_item; // Used to chain variable items
+            char *prompt; // Optional prompt string (strdup'd)
+            struct BasicAstNode_s *variables; // Linked list of AST_NODE_TYPE_VARIABLE nodes (using generic 'next')
+            // next_variable_item was removed
         } input_stmt;
 
         struct {
             struct BasicAstNode_s *condition;
-            struct BasicAstNode_s *then_branch;  // Can be a single statement or a list of statements (implicit via next_line)
-            struct BasicAstNode_s *else_branch;  // Optional (can also be a single statement or list)
+            struct BasicAstNode_s *then_branch;  // Single statement or block (e.g. could be another PROGRAM_LINE list implicitly)
+            struct BasicAstNode_s *else_branch;  // Optional
         } if_then_else_stmt;
 
         struct {
-            struct BasicAstNode_s *counter_var; // AST_NODE_TYPE_VARIABLE
+            struct BasicAstNode_s *counter_var;
             struct BasicAstNode_s *start_value;
             struct BasicAstNode_s *end_value;
             struct BasicAstNode_s *step_value; // Optional, defaults to 1
-            // Body is implicitly the statements between FOR and NEXT
-            // We might need a pointer to the NEXT node or the first statement of the body for execution
-            struct BasicAstNode_s *first_loop_statement_line; // Pointer to the PROGRAM_LINE of the first statement in the loop
+            // struct BasicAstNode_s *first_loop_statement_line; // Not used directly, body is between FOR and NEXT
+            MIR_label_t loop_check_label; // Label for the loop condition check (start of loop)
+            MIR_label_t loop_exit_label;  // Label for jumping out of the loop
+            struct BasicAstNode_s *next_node_ptr; // Pointer to the corresponding NEXT node
         } for_stmt;
 
         struct {
-            struct BasicAstNode_s *counter_var; // Optional: AST_NODE_TYPE_VARIABLE. If NULL, matches the innermost loop.
+            struct BasicAstNode_s *loop_variable; // Optional: AST_NODE_TYPE_VARIABLE. If NULL, matches the innermost loop.
+            struct BasicAstNode_s *for_node_ptr; // Pointer to the corresponding FOR node
         } next_stmt;
 
         struct {
@@ -148,28 +145,27 @@ typedef struct BasicAstNode_s {
 
         struct {
             struct BasicAstNode_s *declarations; // Linked list of AST_NODE_TYPE_VARIABLE nodes (arrays with dimensions)
-            struct BasicAstNode_s *next_declaration; // Used to chain declarations
+            // next_declaration was removed
         } dim_stmt;
 
         struct {
-            char* comment;
+            char* comment; // strdup'd
         } rem_stmt;
 
-        // END has no specific fields beyond type and line_number
+        // END has no specific fields
 
     } data;
 
-    // General purpose next pointer for lists like print items, input variables, dim declarations.
-    // For program_lines, the program_line.next_line is used.
-    // For array dimensions, variable.dimensions points to the head of a list,
-    // and each dimension expression node can use this 'next' to point to the next dimension.
+    // Generic 'next' pointer for use in lists like print items, dimensions, input variables, DIM declarations.
+    // For program_lines, program_line.next_line is used.
     struct BasicAstNode_s *next;
 
 } BasicAstNode;
 
-// Helper functions for creating AST nodes (declarations)
+// --- AST Node Creation Helper Function Declarations ---
 BasicAstNode *create_ast_node(BasicAstNodeType type, int32_t line_number);
-BasicAstNode *create_program_node(int32_t line_number, BasicAstNode *program_lines);
+
+BasicAstNode *create_program_node(int32_t line_number);
 BasicAstNode *create_program_line_node(int32_t line_number, BasicAstNode *statement, BasicAstNode *next_line);
 
 BasicAstNode *create_number_literal_node(int32_t line_number, double value, BasicVariableType num_type);
@@ -184,17 +180,20 @@ BasicAstNode *create_let_node(int32_t line_number, BasicAstNode *variable, Basic
 BasicAstNode *create_print_node(int32_t line_number, BasicAstNode *print_items);
 BasicAstNode *create_input_node(int32_t line_number, const char *prompt, BasicAstNode *variables);
 BasicAstNode *create_if_then_else_node(int32_t line_number, BasicAstNode *condition, BasicAstNode *then_branch, BasicAstNode *else_branch);
-BasicAstNode *create_for_node(int32_t line_number, BasicAstNode *counter_var, BasicAstNode *start, BasicAstNode *end, BasicAstNode *step);
+BasicAstNode *create_for_node(int32_t line_number, BasicAstNode *counter_var, BasicAstNode *start_value, BasicAstNode *end_value, BasicAstNode *step_value);
 BasicAstNode *create_next_node(int32_t line_number, BasicAstNode *counter_var);
 BasicAstNode *create_goto_node(int32_t line_number, int32_t target_line);
 BasicAstNode *create_gosub_node(int32_t line_number, int32_t target_line);
 BasicAstNode *create_return_node(int32_t line_number);
 BasicAstNode *create_dim_node(int32_t line_number, BasicAstNode *declarations);
-BasicAstNode *create_rem_node(int32_t line_number, const char *comment);
+BasicAstNode *create_rem_node(int32_t line_number, const char *comment); // Changed from create_rem_statement_node for consistency
 BasicAstNode *create_end_node(int32_t line_number);
 
-// Helper to append to a list of nodes (e.g. print items, dimensions, etc.)
-BasicAstNode *append_to_list(BasicAstNode *head, BasicAstNode *new_item);
+// --- List Helper Function Declarations ---
+void append_program_line(BasicAstNode *program_node, BasicAstNode *new_line_node);
+BasicAstNode *append_to_list(BasicAstNode *head, BasicAstNode *new_item); // For generic lists using 'next'
 
+// --- AST Node Freeing Function Declaration ---
+void basic_ast_node_free_recursive(BasicAstNode *node);
 
 #endif // BASIC_AST_H

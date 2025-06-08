@@ -7,128 +7,8 @@
 #include <string.h>
 #include <stdarg.h> // For va_list, va_start, va_end in parser_error
 
-// --- Start of AST Node Creation Stubs ---
-// These should ideally be in basic_ast.c. Adding minimal stubs here for now
-// to allow parser development to proceed if basic_ast.c is not yet created/populated.
-
-BasicAstNode *create_ast_node(BasicAstNodeType type, int32_t line_number) {
-    BasicAstNode *node = (BasicAstNode *)calloc(1, sizeof(BasicAstNode)); // calloc for zero-init
-    if (!node) {
-        // In a real scenario, handle memory allocation failure robustly
-        perror("Failed to allocate AST node");
-        exit(EXIT_FAILURE); // Or some other error handling
-    }
-    node->type = type;
-    node->line_number = line_number;
-    return node;
-}
-
-BasicAstNode *create_program_node(int32_t line_number, BasicAstNode *program_lines) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_PROGRAM, line_number);
-    node->data.program.program_lines = program_lines;
-    return node;
-}
-
-BasicAstNode *create_program_line_node(int32_t line_number, BasicAstNode *statement, BasicAstNode *next_line) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_PROGRAM_LINE, line_number); // Line number for the node itself
-    node->line_number = line_number; // Redundant if create_ast_node sets it, but explicit.
-    node->data.program_line.statement = statement;
-    node->data.program_line.next_line = next_line;
-    return node;
-}
-
-BasicAstNode *create_rem_node(int32_t line_number, const char *comment_text) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_REM, line_number);
-    if (comment_text) {
-        node->data.rem_stmt.comment = strdup(comment_text); // Make a copy
-        if (!node->data.rem_stmt.comment && comment_text) {
-             perror("Failed to strdup REM comment"); // Handle allocation failure
-        }
-    } else {
-        node->data.rem_stmt.comment = NULL;
-    }
-    return node;
-}
-
-BasicAstNode *create_end_node(int32_t line_number) {
-    return create_ast_node(AST_NODE_TYPE_END, line_number);
-}
-
-// Stubs for other creation functions needed by the initial parser structure
-BasicAstNode *create_number_literal_node(int32_t line_number, double value, BasicVariableType num_type) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_NUMBER_LITERAL, line_number);
-    node->data.number_literal.value = value;
-    node->data.number_literal.num_type = num_type;
-    return node;
-}
-
-BasicAstNode *create_variable_node(int32_t line_number, const char *name, BasicVariableType var_type, BasicAstNode *dimensions) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_VARIABLE, line_number);
-    node->data.variable.name = name ? strdup(name) : NULL;
-    node->data.variable.var_type = var_type;
-    node->data.variable.dimensions = dimensions;
-    return node;
-}
-
-BasicAstNode *create_let_node(int32_t line_number, BasicAstNode *variable, BasicAstNode *expression) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_LET, line_number);
-    node->data.let_stmt.variable = variable;
-    node->data.let_stmt.expression = expression;
-    return node;
-}
-
-BasicAstNode *create_print_node(int32_t line_number, BasicAstNode *print_items) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_PRINT, line_number);
-    node->data.print_stmt.print_items = print_items;
-    return node;
-}
-
-BasicAstNode *create_goto_node(int32_t line_number, int32_t target_line){
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_GOTO, line_number);
-    node->data.goto_stmt.target_line_number = target_line;
-    return node;
-}
-
-BasicAstNode *create_string_literal_node(int32_t line_number, const char *value) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_STRING_LITERAL, line_number);
-    node->data.string_literal.value = value ? strdup(value) : NULL;
-    if (value && !node->data.string_literal.value) {
-        perror("Failed to strdup string literal value");
-    }
-    return node;
-}
-
-BasicAstNode *create_binary_expr_node(int32_t line_number, const char *op, BasicAstNode *left, BasicAstNode *right) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_BINARY_EXPR, line_number);
-    strncpy(node->data.binary_expr.operator, op, sizeof(node->data.binary_expr.operator) - 1);
-    node->data.binary_expr.operator[sizeof(node->data.binary_expr.operator) - 1] = '\0';
-    node->data.binary_expr.left = left;
-    node->data.binary_expr.right = right;
-    return node;
-}
-
-BasicAstNode *create_unary_expr_node(int32_t line_number, const char *op, BasicAstNode *operand) {
-    BasicAstNode *node = create_ast_node(AST_NODE_TYPE_UNARY_EXPR, line_number);
-    strncpy(node->data.unary_expr.operator, op, sizeof(node->data.unary_expr.operator) - 1);
-    node->data.unary_expr.operator[sizeof(node->data.unary_expr.operator) - 1] = '\0';
-    node->data.unary_expr.operand = operand;
-    return node;
-}
-
-
-BasicAstNode *append_to_list(BasicAstNode *head, BasicAstNode *new_item) {
-    if (!head) return new_item;
-    BasicAstNode *current = head;
-    while (current->next) { // Assuming a generic 'next' pointer for lists like print items
-        current = current->next;
-    }
-    current->next = new_item;
-    return head;
-}
-
-
-// --- End of AST Node Creation Stubs ---
-
+// AST Node creation functions are now in basic_ast.c and declared in basic_ast.h
+// The append_to_list function is also now in basic_ast.c
 
 // Parser Utility Functions
 static void parser_error(BasicParser *parser, const char *message_format, ...) {
@@ -473,7 +353,13 @@ static BasicAstNode *parse_statement(BasicParser *parser) {
             return parse_print_statement(parser);
         case TOKEN_GOTO:
             return parse_goto_statement(parser);
-        // TODO: Add cases for other statements (IF, FOR, NEXT, INPUT, DIM, GOSUB, RETURN, etc.)
+        case TOKEN_IF:
+            return parse_if_statement(parser);
+        case TOKEN_FOR:
+            return parse_for_statement(parser);
+        case TOKEN_NEXT:
+            return parse_next_statement(parser);
+        // TODO: Add cases for other statements (INPUT, DIM, GOSUB, RETURN, etc.)
         default:
             parser_error(parser, "Unexpected token at start of statement: %s", parser->current_token.lexeme);
             // Attempt to recover by advancing until EOL? For now, just return NULL.
@@ -543,8 +429,88 @@ static BasicAstNode *parse_line(BasicParser *parser) {
 }
 
 
+// Forward declaration
+static BasicAstNode *parse_single_statement_on_line(BasicParser *parser);
+
+static BasicAstNode *parse_if_statement(BasicParser *parser) {
+    int32_t line = parser->current_token.line_number;
+    if (!parser_eat(parser, TOKEN_IF, "Expected IF token")) return NULL;
+
+    BasicAstNode *condition = parse_expression(parser);
+    if (!condition) {
+        parser_error(parser, "Expected condition after IF.");
+        return NULL;
+    }
+
+    if (!parser_eat(parser, TOKEN_THEN, "Expected THEN after IF condition.")) {
+        // basic_ast_node_free_recursive(condition); // Clean up condition if THEN is missing
+        return NULL;
+    }
+
+    BasicAstNode *then_branch = NULL;
+    if (parser->current_token.type == TOKEN_NUMBER) {
+        then_branch = create_goto_node(line, atoi(parser->current_token.lexeme));
+        parser_advance_token(parser); // Consume line number
+    } else {
+        then_branch = parse_single_statement_on_line(parser);
+        if (!then_branch) {
+            parser_error(parser, "Expected statement or line number after THEN.");
+            // basic_ast_node_free_recursive(condition);
+            return NULL;
+        }
+    }
+
+    BasicAstNode *else_branch = NULL;
+    if (parser->current_token.type == TOKEN_ELSE) {
+        parser_advance_token(parser); // Consume ELSE
+        if (parser->current_token.type == TOKEN_NUMBER) {
+            else_branch = create_goto_node(line, atoi(parser->current_token.lexeme));
+            parser_advance_token(parser); // Consume line number
+        } else {
+            else_branch = parse_single_statement_on_line(parser);
+            if (!else_branch) {
+                parser_error(parser, "Expected statement or line number after ELSE.");
+                // basic_ast_node_free_recursive(condition);
+                // basic_ast_node_free_recursive(then_branch);
+                return NULL;
+            }
+        }
+    }
+
+    return create_if_then_else_node(line, condition, then_branch, else_branch);
+}
+
+
+// Simplified: Parses one statement. Does not handle multiple statements separated by ':' on the same IF line yet.
+static BasicAstNode *parse_single_statement_on_line(BasicParser *parser) {
+    // This is a simplified version of the main parse_statement logic,
+    // but without expecting a new line number.
+    // It also should not consume EOL, as that's for the main parse_line.
+    switch (parser->current_token.type) {
+        case TOKEN_PRINT:
+            return parse_print_statement(parser);
+        case TOKEN_LET:
+            return parse_let_statement(parser);
+        case TOKEN_IDENTIFIER: // Implicit LET
+            return parse_let_statement(parser);
+        case TOKEN_GOTO:
+            return parse_goto_statement(parser);
+        case TOKEN_END:
+            return parse_end_statement(parser);
+        case TOKEN_REM: // REM after THEN/ELSE is unusual but parse it if lexer allows
+            return parse_rem_statement(parser);
+        // TODO: Add other simple, non-compound statements (e.g., GOSUB, RETURN)
+        // More complex ones like FOR/NEXT on the same IF line would need more work or might be disallowed here.
+        default:
+            parser_error(parser, "Expected a simple statement after THEN/ELSE, got %s", parser->current_token.lexeme);
+            return NULL;
+    }
+}
+
+
 BasicAstNode *basic_parser_parse_program(BasicParser *parser) {
-    BasicAstNode *program_node = create_program_node(0, NULL); // Line 0 for program itself
+    BasicAstNode *program_node = create_program_node(0); // Line 0 for program itself
+    // Program lines are appended using append_program_line.
     BasicAstNode *current_line_node = NULL;
     BasicAstNode *head_line_node = NULL;
 
@@ -607,4 +573,85 @@ const char* BasicTokenTypeToString(BasicTokenType type) {
         // ... add all token types
         default: return "UNKNOWN_TOKEN_TYPE";
     }
+}
+
+
+static BasicAstNode *parse_for_statement(BasicParser *parser) {
+    int32_t line = parser->current_token.line_number;
+    if (!parser_eat(parser, TOKEN_FOR, "Expected FOR token")) return NULL;
+
+    BasicAstNode *loop_var = parse_variable_reference(parser);
+    if (!loop_var) {
+        parser_error(parser, "Expected loop variable after FOR.");
+        return NULL;
+    }
+    // Ensure it's a simple variable, not an array element, for the counter
+    if (loop_var->data.variable.dimensions != NULL) {
+        parser_error(parser, "FOR loop counter variable cannot be an array element.");
+        // basic_ast_node_free_recursive(loop_var); // If parse_variable_reference allocates and returns on error
+        return NULL;
+    }
+
+
+    if (!parser_eat(parser, TOKEN_EQUAL, "Expected '=' after FOR loop variable.")) {
+        // basic_ast_node_free_recursive(loop_var);
+        return NULL;
+    }
+
+    BasicAstNode *start_value = parse_expression(parser);
+    if (!start_value) {
+        parser_error(parser, "Expected start value expression in FOR statement.");
+        // basic_ast_node_free_recursive(loop_var);
+        return NULL;
+    }
+
+    if (!parser_eat(parser, TOKEN_TO, "Expected TO in FOR statement.")) {
+        // basic_ast_node_free_recursive(loop_var);
+        // basic_ast_node_free_recursive(start_value);
+        return NULL;
+    }
+
+    BasicAstNode *end_value = parse_expression(parser);
+    if (!end_value) {
+        parser_error(parser, "Expected end value expression in FOR statement.");
+        // basic_ast_node_free_recursive(loop_var);
+        // basic_ast_node_free_recursive(start_value);
+        return NULL;
+    }
+
+    BasicAstNode *step_value = NULL;
+    if (parser->current_token.type == TOKEN_STEP) {
+        parser_advance_token(parser); // Consume STEP
+        step_value = parse_expression(parser);
+        if (!step_value) {
+            parser_error(parser, "Expected step value expression after STEP.");
+            // basic_ast_node_free_recursive(loop_var);
+            // basic_ast_node_free_recursive(start_value);
+            // basic_ast_node_free_recursive(end_value);
+            return NULL;
+        }
+    }
+
+    BasicAstNode *for_node = create_for_node(line, loop_var, start_value, end_value, step_value);
+    // loop_check_label, loop_exit_label, next_node_ptr are initialized to NULL/0 by create_for_node (via calloc in create_ast_node)
+    return for_node;
+}
+
+static BasicAstNode *parse_next_statement(BasicParser *parser) {
+    int32_t line = parser->current_token.line_number;
+    if (!parser_eat(parser, TOKEN_NEXT, "Expected NEXT token")) return NULL;
+
+    BasicAstNode *loop_var = NULL;
+    // GW-BASIC allows multiple variables for NEXT, e.g. NEXT I, J
+    // For now, we parse only one optional variable.
+    // The parser could be extended to create a list of variable nodes if multiple are present.
+    if (parser->current_token.type == TOKEN_IDENTIFIER) {
+        loop_var = parse_variable_reference(parser);
+        // TODO: If supporting NEXT I, J - loop here for comma and more variables.
+    }
+    // If loop_var is NULL, it's a simple "NEXT" which matches the innermost FOR.
+
+    BasicAstNode *next_node = create_next_node(line, loop_var);
+    // for_node_ptr is initialized to NULL by create_next_node (via calloc in create_ast_node)
+    return next_node;
 }
