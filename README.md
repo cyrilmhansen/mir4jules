@@ -8,6 +8,9 @@
 <a href="https://github.com/vnmakarov/mir/actions?query=workflow%3AAMD64%2DLinux%2Dbench"><img alt="GitHub MIR benchmark status" src="https://github.com/vnmakarov/mir/workflows/AMD64%2DLinux%2Dbench/badge.svg"></a>
 </p>
 
+Forked repo used for AI Assistant experiments
+See original @ https://github.com/vnmakarov/mir
+
 # MIR Project
   * MIR means **M**edium **I**nternal **R**epresentation
   * MIR project goal is to provide a basis to implement fast and lightweight JITs
